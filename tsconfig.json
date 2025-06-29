@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "rootDir": "src",
+    "target": "ES2017",
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "importHelpers": false,
+    "pretty": true,
+    "sourceMap": true,
+    "inlineSources": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "isolatedModules": true,
+    "outDir": "./dist",
+    "jsx": "react-jsx",
+    "module": "esnext",
+    "lib": ["dom", "esnext.disposable", "ESNext"],
+    "declaration": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules"]
+}

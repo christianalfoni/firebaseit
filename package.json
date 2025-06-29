@@ -1,0 +1,46 @@
+{
+  "name": "firebaseit",
+  "version": "0.1.0",
+  "description": "A React firebase framework to build monetizable apps",
+  "keywords": [
+    "state",
+    "management",
+    "react",
+    "redux",
+    "mobx",
+    "context",
+    "hooks"
+  ],
+  "author": "Christian Alfoni",
+  "directories": {
+    "doc": "docs"
+  },
+  "files": [
+    "dist"
+  ],
+  "module": "./dist/index.js",
+  "main": "./dist/index.js",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "yarn clean && tsc",
+    "clean": "rimraf ./dist ./dist-babel-plugin ./dist-swc-plugin",
+    "test": "vitest",
+    "prepublish": "yarn build"
+  },
+  "devDependencies": {
+    "@types/lodash.isequal": "^4.5.8",
+    "@types/react": "^19.0.8",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^3.0.5"
+  },
+  "dependencies": {
+    "@invertase/firestore-stripe-payments": "^0.0.8",
+    "firebase": "^11.9.1",
+    "lodash.isequal": "^4.5.0",
+    "react": "^19.0.0"
+  },
+  "license": "ISC"
+}
