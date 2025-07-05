@@ -12,18 +12,18 @@ type RequiredKeys<T extends Record<string, any>> = Exclude<
 >;
 
 // 3) build the final mapped output type
-type FromFirestoreObject<T extends ObjectSchemaProperties> =
+export type fromServerObject<T extends ObjectSchemaProperties> =
   // all the required schema-keys stay required
   {
-    [K in RequiredKeys<T>]: ReturnType<T[K]["fromFirestore"]>;
-  } & { [K in OptionalKeys<T>]?: ReturnType<T[K]["fromFirestore"]> }; // all the optional schema-keys become optional (and return undefined if missing)
+    [K in RequiredKeys<T>]: ReturnType<T[K]["fromServer"]>;
+  } & { [K in OptionalKeys<T>]?: ReturnType<T[K]["fromServer"]> }; // all the optional schema-keys become optional (and return undefined if missing)
 
 // 4) build the final mapped output type
-type ToFirestoreObject<T extends ObjectSchemaProperties> =
+export type toServerObject<T extends ObjectSchemaProperties> =
   // all the required schema-keys stay required
   {
-    [K in RequiredKeys<T>]: ReturnType<T[K]["toFirestore"]>;
-  } & { [K in OptionalKeys<T>]?: ReturnType<T[K]["toFirestore"]> }; // all the optional schema-keys become optional (and return undefined if missing)
+    [K in RequiredKeys<T>]: ReturnType<T[K]["toServer"]>;
+  } & { [K in OptionalKeys<T>]?: ReturnType<T[K]["toServer"]> }; // all the optional schema-keys become optional (and return undefined if missing)
 
 export type Id = string;
 
@@ -34,65 +34,77 @@ export type Schema = Record<string, CollectionSchema<any>>;
 type ConstantSchema<S extends string> = {
   type: "constant";
   value: S;
-  fromFirestore: (val: unknown) => S;
-  toFirestore: (val: S) => string;
+  fromServer: (val: unknown) => S;
+  toServer: (val: S) => string;
 };
 
 export type OptionalSchema<S> = {
   type: "optional";
   schema: S;
-  fromFirestore: (val: unknown) => SchemaType<S> | undefined;
-  toFirestore: (val: SchemaType<S> | undefined) => unknown;
+  fromServer: (val: unknown) => SchemaType<S> | undefined;
+  toServer: (val: SchemaType<S> | undefined) => unknown;
 };
 
 export type EnumSchema<S extends ArraySchemaValues[]> = {
   type: "enum";
   items: S;
-  fromFirestore: (val: unknown) => SchemaType<S[number]>;
-  toFirestore: (val: SchemaType<S[number]>) => unknown;
+  fromServer: (val: unknown) => SchemaType<S[number]>;
+  toServer: (val: SchemaType<S[number]>) => unknown;
 };
 
 export type UidSchema = {
   type: "uid";
-  fromFirestore: (val: unknown) => Uid;
-  toFirestore: (val: unknown) => Uid;
+  fromServer: (val: unknown) => Uid;
+  toServer: (val: unknown) => Uid;
+};
+
+export type UnknownSchema = {
+  type: "unknown";
+  fromServer: (val: unknown) => unknown;
+  toServer: (val: unknown) => unknown;
+};
+
+export type VoidSchema = {
+  type: "void";
+  fromServer: (val: unknown) => undefined;
+  toServer: (val: unknown) => undefined;
 };
 
 export type StringSchema = {
   type: "string";
-  fromFirestore: (val: unknown) => string;
-  toFirestore: (val: unknown) => string;
+  fromServer: (val: unknown) => string;
+  toServer: (val: unknown) => string;
 };
 
 export type DateSchema = {
   type: "date";
-  fromFirestore: (val: unknown) => Date;
-  toFirestore: (val: unknown) => Timestamp | FieldValue;
+  fromServer: (val: unknown) => Date;
+  toServer: (val: unknown) => Timestamp | FieldValue;
 };
 
 export type NumberSchema = {
   type: "number";
-  fromFirestore: (val: unknown) => number;
-  toFirestore: (val: unknown) => number;
+  fromServer: (val: unknown) => number;
+  toServer: (val: unknown) => number;
 };
 
 export type BooleanSchema = {
   type: "boolean";
-  fromFirestore: (val: unknown) => boolean;
-  toFirestore: (val: unknown) => boolean;
+  fromServer: (val: unknown) => boolean;
+  toServer: (val: unknown) => boolean;
 };
 
-export type ArraySchema = {
+export type ArraySchema<T extends ArraySchemaValues> = {
   type: "array";
-  item: ArraySchemaValues;
-  fromFirestore: (val: unknown) => unknown[];
-  toFirestore: (val: unknown[]) => unknown[];
+  item: T;
+  fromServer: (val: unknown) => ReturnType<T["fromServer"]>[];
+  toServer: (val: unknown[]) => ReturnType<T["toServer"]>[];
 };
 
 export type NullSchema = {
   type: "null";
-  fromFirestore: (val: unknown) => null;
-  toFirestore: (val: unknown) => null;
+  fromServer: (val: unknown) => null;
+  toServer: (val: unknown) => null;
 };
 
 export type ArraySchemaValues =
@@ -108,26 +120,33 @@ export type ObjectSchemaValues =
   | StringSchema
   | NumberSchema
   | BooleanSchema
-  | ArraySchema
+  | ArraySchema<any>
   | NullSchema
   | ObjectSchema<any>
   | DateSchema
   | UidSchema
   | OptionalSchema<any>
   | EnumSchema<any>
-  | ConstantSchema<any>;
+  | ConstantSchema<any>
+  | UnknownSchema;
 
 export type ObjectSchemaProperties = Record<string, ObjectSchemaValues>;
 
 export type ObjectSchema<T extends ObjectSchemaProperties> = {
   type: "object";
-  fromFirestore: (val: unknown) => FromFirestoreObject<T>;
-  toFirestore: (val: FromFirestoreObject<T>) => ToFirestoreObject<T>;
+  fromServer: (val: unknown) => fromServerObject<T>;
+  toServer: (val: unknown) => toServerObject<T>;
   properties: T;
 };
 
 // 1) your existing SchemaType<> helper
-type SchemaType<S> = S extends StringSchema
+type SchemaType<S> = S extends DateSchema
+  ? Date
+  : S extends VoidSchema
+  ? void
+  : S extends UnknownSchema
+  ? unknown
+  : S extends StringSchema
   ? string
   : S extends NumberSchema
   ? number
@@ -135,10 +154,10 @@ type SchemaType<S> = S extends StringSchema
   ? boolean
   : S extends NullSchema
   ? null
-  : S extends ArraySchema
+  : S extends ArraySchema<any>
   ? SchemaType<S["item"]>[]
   : S extends ObjectSchema<any>
-  ? ReturnType<S["fromFirestore"]>
+  ? ReturnType<S["fromServer"]>
   : S extends OptionalSchema<infer U>
   ? SchemaType<U> | undefined
   : S extends EnumSchema<infer U>
@@ -215,7 +234,7 @@ export type DocumentDataUpdates<S extends ObjectSchema<any>> = Partial<
 >;
 
 export type DocumentData<T extends ObjectSchema<any>> = ReturnType<
-  T["fromFirestore"]
+  T["fromServer"]
 > & { id: Id };
 
 export type DocumentSchema<
@@ -223,34 +242,45 @@ export type DocumentSchema<
   C extends Record<string, CollectionSchema<any>> = {}
 > = {
   type: "document";
-  fromFirestore: (val: unknown) => ReturnType<T["fromFirestore"]> & { id: Id };
-  toFirestore: (
-    val: ReturnType<T["fromFirestore"]> & { id: Id }
-  ) => ReturnType<T["toFirestore"]>;
+  fromServer: (val: unknown) => ReturnType<T["fromServer"]> & { id: Id };
+  toServer: (
+    val: ReturnType<T["fromServer"]> & { id: Id }
+  ) => ReturnType<T["toServer"]>;
   properties: T;
   collections: C;
 };
 
 export type CollectionSchema<T extends DocumentSchema<any, any>> = {
   type: "collection";
-  fromFirestore: (val: unknown) => Array<ReturnType<T["fromFirestore"]>>;
-  toFirestore: (
-    val: Array<ReturnType<T["fromFirestore"]>>
-  ) => Array<ReturnType<T["toFirestore"]>>;
+  fromServer: (val: unknown) => Array<ReturnType<T["fromServer"]>>;
+  toServer: (
+    val: Array<ReturnType<T["fromServer"]>>
+  ) => Array<ReturnType<T["toServer"]>>;
   document: T;
+};
+
+export type FunctionSchema<
+  Req extends ObjectSchema<any> | VoidSchema,
+  Res extends ObjectSchema<any> | ArraySchema<any>
+> = {
+  type: "function";
+  request: Req;
+  response: Res;
+  toServer: (val: unknown) => ReturnType<Req["toServer"]>;
+  fromServer: (val: unknown) => ReturnType<Res["fromServer"]>;
 };
 
 export const s = {
   constant: <S extends string>(value: S): ConstantSchema<S> => ({
     type: "constant",
     value,
-    fromFirestore: (val: unknown) => {
+    fromServer: (val: unknown) => {
       if (val !== value) {
         throw new Error(`Expected constant value \"${value}\", got \"${val}\"`);
       }
       return value;
     },
-    toFirestore: (val: S) => {
+    toServer: (val: S) => {
       if (val !== value) {
         throw new Error(`Expected constant value \"${value}\", got \"${val}\"`);
       }
@@ -272,39 +302,39 @@ export const s = {
   ): OptionalSchema<S> => ({
     type: "optional",
     schema: inner,
-    fromFirestore: (val: unknown) => {
+    fromServer: (val: unknown) => {
       if (val === undefined || val === null) {
         return undefined;
       }
-      return inner.fromFirestore(val) as SchemaType<S>;
+      return inner.fromServer(val) as SchemaType<S>;
     },
-    toFirestore: (val: SchemaType<S> | undefined) => {
+    toServer: (val: SchemaType<S> | undefined) => {
       if (val === undefined) {
         // Firestore will simply omit fields set to undefined
         return undefined;
       }
-      return inner.toFirestore(val as any);
+      return inner.toServer(val as any);
     },
   }),
   enum: <S extends ArraySchemaValues[]>(...items: S): EnumSchema<S> => ({
     type: "enum",
     items,
-    fromFirestore: (val: unknown) => {
+    fromServer: (val: unknown) => {
       for (const item of items) {
         try {
-          return item.fromFirestore(val) as SchemaType<S[number]>;
+          return item.fromServer(val) as SchemaType<S[number]>;
         } catch {
           // try next
         }
       }
       throw new Error(`Value "${val}" does not match any enum variant`);
     },
-    toFirestore: (val: SchemaType<S[number]>) => {
+    toServer: (val: SchemaType<S[number]>) => {
       // find the schema that accepts this value
       for (const item of items) {
         try {
           // @ts-ignore
-          return item.toFirestore(val);
+          return item.toServer(val);
         } catch {
           // no-op, try next
         }
@@ -314,14 +344,14 @@ export const s = {
   }),
   date: (): DateSchema => ({
     type: "date",
-    fromFirestore: (val) => {
+    fromServer: (val) => {
       if (!(val instanceof Timestamp)) {
         throw new Error("Value is not a timestamp");
       }
 
       return val.toDate();
     },
-    toFirestore: (val) => {
+    toServer: (val) => {
       if (!(val instanceof Date)) {
         throw new Error("Value is not a date");
       }
@@ -336,14 +366,14 @@ export const s = {
   }),
   uid: (): UidSchema => ({
     type: "uid",
-    fromFirestore: (val) => {
+    fromServer: (val) => {
       if (typeof val !== "string") {
         throw new Error("Value is not a string");
       }
 
       return val;
     },
-    toFirestore: (val) => {
+    toServer: (val) => {
       if (typeof val !== "string") {
         throw new Error("Value is not a string");
       }
@@ -351,16 +381,33 @@ export const s = {
       return val;
     },
   }),
+  void: (): VoidSchema => ({
+    type: "void",
+    fromServer: (val) => {
+      if (val !== undefined) {
+        throw new Error("Value is not undefined");
+      }
+
+      return val;
+    },
+    toServer: (val) => {
+      if (typeof val !== "undefined") {
+        throw new Error("Value is not undefined");
+      }
+
+      return val;
+    },
+  }),
   string: (): StringSchema => ({
     type: "string",
-    fromFirestore: (val) => {
+    fromServer: (val) => {
       if (typeof val !== "string") {
         throw new Error("Value is not a string");
       }
 
       return val;
     },
-    toFirestore: (val) => {
+    toServer: (val) => {
       if (typeof val !== "string") {
         throw new Error("Value is not a string");
       }
@@ -370,14 +417,14 @@ export const s = {
   }),
   boolean: (): BooleanSchema => ({
     type: "boolean",
-    fromFirestore: (val) => {
+    fromServer: (val) => {
       if (typeof val !== "boolean") {
         throw new Error("Value is not a boolean");
       }
 
       return val;
     },
-    toFirestore: (val) => {
+    toServer: (val) => {
       if (typeof val !== "boolean") {
         throw new Error("Value is not a boolean");
       }
@@ -385,38 +432,68 @@ export const s = {
       return val;
     },
   }),
-  array: (item: ArraySchemaValues): ArraySchema => ({
-    type: "array",
-    item,
-    fromFirestore: (val) => {
-      if (!Array.isArray(val)) {
-        throw new Error("Value is not an array");
+  number: (): NumberSchema => ({
+    type: "number",
+    fromServer: (val) => {
+      if (typeof val !== "number") {
+        throw new Error("Value is not a number");
       }
 
       return val;
     },
-    toFirestore: (val) => {
+    toServer: (val) => {
+      if (typeof val !== "number") {
+        throw new Error("Value is not a number");
+      }
+
+      return val;
+    },
+  }),
+  array: <T extends ArraySchemaValues>(item: T): ArraySchema<T> => ({
+    type: "array",
+    item,
+    fromServer: (val) => {
       if (!Array.isArray(val)) {
         throw new Error("Value is not an array");
       }
 
-      return val;
+      return val.map((itemVal) => item.fromServer(itemVal)) as ReturnType<
+        T["fromServer"]
+      >[];
+    },
+    toServer: (val) => {
+      if (!Array.isArray(val)) {
+        throw new Error("Value is not an array");
+      }
+
+      return val.map((itemVal) => item.toServer(itemVal)) as ReturnType<
+        T["toServer"]
+      >[];
     },
   }),
   null: (): NullSchema => ({
     type: "null",
-    fromFirestore: (val) => {
+    fromServer: (val) => {
       if (val !== null) {
         throw new Error("Value is not null");
       }
 
       return val;
     },
-    toFirestore: (val) => {
+    toServer: (val) => {
       if (val !== null) {
         throw new Error("Value is not null");
       }
 
+      return val;
+    },
+  }),
+  unknown: (): UnknownSchema => ({
+    type: "unknown",
+    fromServer: (val) => {
+      return val;
+    },
+    toServer: (val) => {
       return val;
     },
   }),
@@ -424,7 +501,7 @@ export const s = {
     properties: T
   ): ObjectSchema<T> => ({
     type: "object",
-    fromFirestore: (val: any) => {
+    fromServer: (val: any) => {
       if (val === null || typeof val !== "object" || Array.isArray(val)) {
         throw new Error("Value is not an object");
       }
@@ -432,14 +509,14 @@ export const s = {
       const obj: any = {};
 
       for (const [key, schema] of Object.entries(properties)) {
-        obj[key] = schema.fromFirestore(val[key]);
+        obj[key] = schema.fromServer(val[key]);
       }
 
       return obj as {
-        [K in keyof T]: ReturnType<T[K]["fromFirestore"]>;
+        [K in keyof T]: ReturnType<T[K]["fromServer"]>;
       };
     },
-    toFirestore: (val: any) => {
+    toServer: (val: any) => {
       if (val === null || typeof val !== "object" || Array.isArray(val)) {
         throw new Error("Value is not an object");
       }
@@ -447,11 +524,11 @@ export const s = {
       const obj: any = {};
 
       for (const [key, schema] of Object.entries(properties)) {
-        obj[key] = schema.toFirestore(val[key]);
+        obj[key] = schema.toServer(val[key]);
       }
 
       return obj as {
-        [K in keyof T]: ReturnType<T[K]["toFirestore"]>;
+        [K in keyof T]: ReturnType<T[K]["toServer"]>;
       };
     },
     properties,
@@ -464,7 +541,7 @@ export const s = {
     collections: C = {} as C
   ): DocumentSchema<ObjectSchema<T>, C> => ({
     type: "document",
-    fromFirestore: (val: any) => {
+    fromServer: (val: any) => {
       if (val === null || typeof val !== "object" || Array.isArray(val)) {
         throw new Error("Value is not an object");
       }
@@ -476,12 +553,12 @@ export const s = {
       const obj: any = {};
 
       for (const [key, schema] of Object.entries(properties)) {
-        obj[key] = schema.fromFirestore(val[key]);
+        obj[key] = schema.fromServer(val[key]);
       }
 
-      return obj as { id: Id } & ReturnType<ObjectSchema<T>["fromFirestore"]>;
+      return obj as { id: Id } & ReturnType<ObjectSchema<T>["fromServer"]>;
     },
-    toFirestore: (val: any) => {
+    toServer: (val: any) => {
       if (val === null || typeof val !== "object" || Array.isArray(val)) {
         throw new Error("Value is not an object");
       }
@@ -493,10 +570,10 @@ export const s = {
       const obj: any = {};
 
       for (const [key, schema] of Object.entries(properties)) {
-        obj[key] = schema.toFirestore(val[key]);
+        obj[key] = schema.toServer(val[key]);
       }
 
-      return obj as { id: Id } & ReturnType<ObjectSchema<T>["toFirestore"]>;
+      return obj as { id: Id } & ReturnType<ObjectSchema<T>["toServer"]>;
     },
     properties: s.object(properties),
     collections,
@@ -505,24 +582,37 @@ export const s = {
     document: T
   ): CollectionSchema<T> => ({
     type: "collection",
-    fromFirestore: (val: unknown) => {
+    fromServer: (val: unknown) => {
       if (!Array.isArray(val)) {
         throw new Error("Value is not a collection");
       }
 
-      return val.map((item) => document.fromFirestore(item)) as Array<
-        ReturnType<T["fromFirestore"]>
+      return val.map((item) => document.fromServer(item)) as Array<
+        ReturnType<T["fromServer"]>
       >;
     },
-    toFirestore: (val) => {
+    toServer: (val) => {
       if (!Array.isArray(val)) {
         throw new Error("Value is not a collection");
       }
 
-      return val.map((item) => document.toFirestore(item)) as Array<
-        ReturnType<T["toFirestore"]>
+      return val.map((item) => document.toServer(item)) as Array<
+        ReturnType<T["toServer"]>
       >;
     },
     document,
+  }),
+  function: <
+    ReqProps extends ObjectSchema<any> | VoidSchema,
+    ResProps extends ObjectSchema<any> | ArraySchema<any>
+  >(
+    request: ReqProps,
+    response: ResProps
+  ): FunctionSchema<ReqProps, ResProps> => ({
+    type: "function",
+    request,
+    response,
+    toServer: (payload) => request.toServer(payload) as any,
+    fromServer: (res) => response.fromServer(res) as any,
   }),
 };

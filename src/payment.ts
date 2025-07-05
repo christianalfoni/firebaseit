@@ -99,9 +99,9 @@ export function createPayment(
 
   return {
     useSubscriptions() {
-      const user = auth.useUser();
+      const { user } = auth.useAuth();
 
-      const data = ensureUser(user.data);
+      const data = ensureUser(user);
 
       return collections.customers
         .document(data.uid)
@@ -206,8 +206,8 @@ export function createPayment(
       return collections.products.document(productId).collections.prices.use();
     },
     useSubscribe() {
-      const user = auth.useUser();
-      const userData = ensureUser(user.data);
+      const { user } = auth.useAuth();
+      const userData = ensureUser(user);
 
       const [state, setState] = useState({
         isPending: false,
@@ -217,7 +217,7 @@ export function createPayment(
       return {
         ...state,
         subscribe(priceId: Id) {
-          if (!user.data) {
+          if (!user) {
             throw new Error("No user is signed in");
           }
 

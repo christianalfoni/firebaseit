@@ -17,16 +17,11 @@ import {
   CollectionReference,
   deleteDoc,
   doc,
-  query,
   setDoc,
   updateDoc,
 } from "firebase/firestore";
 
-import type {
-  Retriever,
-  RetrieverCache,
-  SuspensePromise,
-} from "./retrieverCache";
+import type { RetrieverCache, SuspensePromise } from "./retrieverCache";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createQueryApi, QueryApi } from "./queryApi";
@@ -42,12 +37,16 @@ type Operations<T extends DocumentSchema<any>> = Record<
 export type Collection<T extends DocumentSchema<any>> = {
   ref: CollectionReference;
   document(id: Id): Document<T>;
+  add(data: Omit<DocumentData<T["properties"]>, "id">): Promise<Id>;
+  set(id: Id, data: Omit<DocumentData<T["properties"]>, "id">): Promise<void>;
+  update(id: Id, data: DocumentDataUpdates<T["properties"]>): Promise<void>;
+  remove(id: Id): Promise<void>;
   useOperations(): {
     operations: Operations<T>;
-    add(data: Omit<DocumentData<T["properties"]>, "id">): void;
-    set(id: Id, data: Omit<DocumentData<T["properties"]>, "id">): void;
-    update(id: Id, data: DocumentDataUpdates<T["properties"]>): void;
-    remove(id: Id): void;
+    add(data: Omit<DocumentData<T["properties"]>, "id">): Promise<Id>;
+    set(id: Id, data: Omit<DocumentData<T["properties"]>, "id">): Promise<void>;
+    update(id: Id, data: DocumentDataUpdates<T["properties"]>): Promise<void>;
+    remove(id: Id): Promise<void>;
   };
   use(
     query?: (
@@ -89,6 +88,31 @@ export function createCollection<T extends DocumentSchema<any, any>>(
   return {
     get ref() {
       return ref;
+    },
+    async add(data) {
+      const docRef = doc(ref);
+
+      await setDoc(docRef, data);
+
+      return docRef.id;
+    },
+    async set(id, data) {
+      const docRef = doc(ref, id);
+
+      await setDoc(docRef, data);
+    },
+    async update(id, data) {
+      const documentData = retrieverCache.getDocumentData(id);
+
+      if (!documentData) {
+        throw new Error(`Document with id ${id} does not exist.`);
+      }
+      const docRef = doc(ref, id);
+      await updateDoc(docRef, data);
+    },
+    async remove(id) {
+      const docRef = doc(ref, id);
+      await deleteDoc(docRef);
     },
     document(id) {
       return (
@@ -147,10 +171,10 @@ export function createCollection<T extends DocumentSchema<any, any>>(
 
       return {
         operations,
-        add(data) {
+        async add(data) {
           const docRef = doc(ref);
           setPending(docRef.id);
-          setDoc(docRef, data).then(
+          await setDoc(docRef, data).then(
             () => unsetOperation(docRef.id),
             (error) =>
               setError(
@@ -162,8 +186,10 @@ export function createCollection<T extends DocumentSchema<any, any>>(
                 )
               )
           );
+
+          return docRef.id;
         },
-        set(id, data) {
+        async set(id, data) {
           const docRef = doc(ref, id);
           setPending(id);
           setDoc(docRef, data).then(
@@ -179,7 +205,7 @@ export function createCollection<T extends DocumentSchema<any, any>>(
               )
           );
         },
-        update(id, data) {
+        async update(id, data) {
           const docRef = doc(ref, id);
           const documentData = retrieverCache.getDocumentData(id);
 
@@ -209,7 +235,7 @@ export function createCollection<T extends DocumentSchema<any, any>>(
               )
           );
         },
-        remove(id) {
+        async remove(id) {
           const docRef = doc(ref, id);
           setPending(id);
           deleteDoc(docRef).then(
@@ -233,6 +259,7 @@ export function createCollection<T extends DocumentSchema<any, any>>(
       if (query) {
         const queryApi = createQueryApi<DocumentDataUpdates<T["properties"]>>();
         const q = query(queryApi);
+
         useRetriever = retrieverCache.create({
           type: "query",
           ref: q.get(ref),

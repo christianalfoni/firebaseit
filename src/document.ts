@@ -113,6 +113,9 @@ type DocumentCollections<T extends DocumentSchema<any, any>> = {
 export type Document<T extends DocumentSchema<any, any>> = {
   ref: DocumentReference;
   collections: DocumentCollections<T>;
+  set(data: Omit<DocumentData<T["properties"]>, "id">): Promise<void>;
+  update(data: DocumentDataUpdates<T["properties"]>): Promise<void>;
+  remove(): Promise<void>;
   useOperations(): (
     | {
         error: DocumentOperationError<T>;
@@ -127,9 +130,9 @@ export type Document<T extends DocumentSchema<any, any>> = {
         isPending: false;
       }
   ) & {
-    set(data: Omit<DocumentData<T["properties"]>, "id">): void;
-    update(data: DocumentDataUpdates<T["properties"]>): void;
-    remove(): void;
+    set(data: Omit<DocumentData<T["properties"]>, "id">): Promise<void>;
+    update(data: DocumentDataUpdates<T["properties"]>): Promise<void>;
+    remove(): Promise<void>;
   };
   use(): (
     | {
@@ -177,6 +180,26 @@ export function createDocument<T extends DocumentSchema<any, any>>(
       return ref;
     },
     collections,
+    async set(data) {
+      await setDoc(ref, data);
+    },
+    async update(data) {
+      const documentData = retrieverCache.getDocumentData(ref.id);
+      if (!documentData) {
+        throw new DocumentUpdateError(
+          ref.id,
+          {},
+          `Document ${ref.path} has not been fetched yet`
+        );
+      }
+      await updateDoc(ref, createDocUpdate(documentData, data));
+    },
+    async remove() {
+      await deleteDoc(ref);
+    },
+    get() {
+      return retriever.get();
+    },
     // @ts-ignore
     useOperations() {
       const isMountedRef = useRef(false);
@@ -196,7 +219,7 @@ export function createDocument<T extends DocumentSchema<any, any>>(
 
       return {
         ...state,
-        set(data) {
+        async set(data) {
           setState({ isPending: true, error: null });
           setDoc(ref, data).then(
             () => setState({ isPending: false, error: null }),
@@ -211,7 +234,7 @@ export function createDocument<T extends DocumentSchema<any, any>>(
               })
           );
         },
-        update(data) {
+        async update(data) {
           setState({ isPending: true, error: null });
           const documentData = retrieverCache.getDocumentData(ref.id);
           if (!documentData) {
@@ -234,7 +257,7 @@ export function createDocument<T extends DocumentSchema<any, any>>(
               })
           );
         },
-        remove() {
+        async remove() {
           setState({ isPending: true, error: null });
           deleteDoc(ref).then(
             () => setState({ isPending: false, error: null }),

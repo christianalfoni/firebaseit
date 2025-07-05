@@ -19,17 +19,23 @@ import type {
 import { createUseTransaction } from "./useTransaction";
 import { createAuth } from "./auth";
 import { createPayment } from "./payment";
-import { getFunctions } from "firebase/functions";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import { createFiles } from "./files";
+import { FunctionSchema } from "./schema";
 
 export { s } from "./schema";
 
-export function createFirebase<S extends Collections, A extends AuthOptions>({
+export function createFirebase<
+  S extends Collections,
+  A extends AuthOptions,
+  F extends Record<string, FunctionSchema<any, any>>
+>({
   schema,
   config,
   offline: enableLocalPersistence = true,
   auth,
-}: StoreOptions<S, A>): FirebaseStore<S, A> {
+  functions,
+}: StoreOptions<S, A, F>): FirebaseStore<S, A, F> {
   let app = getApps()[0];
   let firestore: Firestore;
 
@@ -60,14 +66,26 @@ export function createFirebase<S extends Collections, A extends AuthOptions>({
   }
 
   const storeAuth = createAuth(app, auth);
-  const functions = getFunctions(app, "europe-west2");
+  const firebaseFunctions = getFunctions(app, "europe-west2");
   const files = createFiles(app);
+
+  const evaluatedFunctions: any = {};
+
+  for (const [key, value] of Object.entries(functions || {})) {
+    evaluatedFunctions[key] = (payload: any) => {
+      const callable = httpsCallable(firebaseFunctions, key);
+      return callable(value.toServer(payload)).then((result) =>
+        value.fromServer(result.data)
+      );
+    };
+  }
 
   return {
     store,
     files,
     useTransaction: createUseTransaction(firestore, schema),
     auth: storeAuth,
-    payment: createPayment(firestore, functions, storeAuth),
+    payment: createPayment(firestore, firebaseFunctions, storeAuth),
+    functions: evaluatedFunctions,
   } as any;
 }

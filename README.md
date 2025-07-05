@@ -30,6 +30,23 @@ export const schema = {
 };
 ```
 
+### Build a schema for your functions
+
+```ts
+import { s } from "firebaseit";
+
+export const functions = {
+  createTodo: s.functions(
+    s.object({
+      title: s.string(),
+    }),
+    s.object({
+      id: s.uid(),
+    })
+  ),
+};
+```
+
 ### Configure your firebase instance
 
 ```ts
@@ -231,4 +248,19 @@ function MyComponent() {
 function MyComponent() {
   const subscription = fb.payment.useSubscription();
 }
+```
+
+## Schemas
+
+```ts
+import { s } from "firebaseit";
+
+s.string();
+s.number();
+s.void();
+s.unknown();
+s.boolean();
+s.constant("foo");
+s.enum(s.constant("foo"), s.constant("bar"));
+s.
 ```

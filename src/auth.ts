@@ -7,15 +7,17 @@ import {
   signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
+  GithubAuthProvider,
   type UserCredential,
   type User as FirebaseUser,
   linkWithCredential,
   EmailAuthProvider,
   linkWithRedirect,
   linkWithPopup,
+  getRedirectResult,
 } from "firebase/auth";
-import type { AuthOptions } from "./types";
-import { use, useEffect, useRef, useState } from "react";
+import type { AuthOptions, OAuthProvider } from "./types";
+import { useEffect, useRef, useState } from "react";
 import {
   createFulfilledPromise,
   createPendingPromise,
@@ -37,7 +39,7 @@ export type AuthenticatedUser = {
   email: string;
   displayName: string | null;
   photoURL: string | null;
-  provider: Provider;
+  provider: OAuthProvider;
 };
 
 export type AnonymousUser = {
@@ -47,40 +49,47 @@ export type AnonymousUser = {
 
 export type User = AuthenticatedUser | AnonymousUser;
 
-export type Provider = "google";
-
 export type Auth<T extends AuthOptions> = {
-  useSignIn(): {
-    signIn(provider: Provider | { email: string; password: string }): void;
-    isPending: boolean;
-    error: Error | null;
-    user: User | null;
-  };
-  useUser(): (
+  useAuth(): (
     | {
-        isFetching: false;
+        didSignUp: false;
+        isPending: false;
         error: null;
-        data: null;
+        user: null;
       }
     | {
-        isFetching: true;
+        didSignUp: false;
+        isPending: true;
         error: null;
-        data: null;
+        user: null;
       }
     | {
-        isFetching: false;
+        didSignUp: false;
+        isPending: false;
         error: Error;
-        data: null;
+        user: null;
       }
     | {
-        isFetching: false;
+        didSignUp: false;
+        isPending: false;
         error: null;
-        data: T["allowAnonymous"] extends true
+        user: T["allowAnonymous"] extends true
+          ? User | AuthenticatedUser
+          : AuthenticatedUser | null;
+      }
+    | {
+        didSignUp: true;
+        isPending: false;
+        error: null;
+        user: T["allowAnonymous"] extends true
           ? User | AuthenticatedUser
           : AuthenticatedUser | null;
       }
   ) & {
     suspend(): T["allowAnonymous"] extends true ? User : AuthenticatedUser;
+    signIn(provider: OAuthProvider): void;
+    signOut(): void;
+    link(provider: OAuthProvider): void;
   };
 };
 
@@ -108,6 +117,19 @@ export function createAuth<T extends AuthOptions>(
 
       return provider;
     },
+    github() {
+      const provider = new GithubAuthProvider();
+
+      options?.providers?.github?.scopes?.forEach((scope: string) => {
+        provider.addScope(scope);
+      });
+
+      if (options?.providers?.github?.parameters) {
+        provider.setCustomParameters(options.providers?.github?.parameters);
+      }
+
+      return provider;
+    },
   } as const;
 
   function getUserDetails(user: FirebaseUser | null): User | null {
@@ -126,13 +148,15 @@ export function createAuth<T extends AuthOptions>(
       throw new Error("Can not authenticate user without email");
     }
 
+    const provider = user.providerData[0];
+
     return {
       uid: user.uid,
       isAnonymous: false,
       displayName: user.displayName,
       email: user.email,
       photoURL: user.photoURL,
-      provider: user.providerId as Provider,
+      provider: provider.providerId.includes("github") ? "github" : "google",
     };
   }
 
@@ -145,9 +169,25 @@ export function createAuth<T extends AuthOptions>(
     return user;
   }
 
+  function didUserSignUp(firebaseUser: FirebaseUser | null): boolean {
+    if (!firebaseUser) {
+      return false;
+    }
+
+    const metadata = firebaseUser.metadata;
+
+    if (!metadata || !metadata.creationTime || !metadata.lastSignInTime) {
+      return false;
+    }
+
+    return metadata.creationTime === metadata.lastSignInTime;
+  }
+
   const cachedUser = localStorage.getItem(LOCAL_STORAGE_KEY)
     ? JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY)!)
     : null;
+
+  const redirectResult = getRedirectResult(auth);
 
   let userPromise = (
     cachedUser
@@ -172,13 +212,9 @@ export function createAuth<T extends AuthOptions>(
   ) as SuspensePromise<User | null>;
 
   return {
-    useSignIn() {
+    // @ts-ignore
+    useAuth() {
       const isMountedRef = useRef(false);
-      const [state, setState] = useState({
-        isPending: false,
-        error: null as Error | null,
-        user: null as User | null,
-      });
 
       useEffect(() => {
         isMountedRef.current = true;
@@ -188,146 +224,50 @@ export function createAuth<T extends AuthOptions>(
         };
       }, []);
 
-      return {
-        ...state,
-        link(provider: Provider | { email: string; password: string }) {
-          if (!auth.currentUser) {
-            throw new Error("No user to link to");
-          }
-          setState({
-            isPending: true,
-            error: null,
-            user: null,
-          });
-
-          const onLinkSuccess = (userCredential: UserCredential) => {
-            if (!isMountedRef.current) {
-              return;
-            }
-
-            setState({
-              isPending: false,
-              error: null,
-              user: setUser(userCredential.user),
-            });
-          };
-
-          const onLinkError = (error: Error) => {
-            if (!isMountedRef.current) {
-              return;
-            }
-
-            setState({
-              isPending: false,
-              error,
-              user: null,
-            });
-          };
-
-          if (typeof provider !== "string") {
-            const credential = EmailAuthProvider.credential(
-              provider.email,
-              provider.password
-            );
-            linkWithCredential(auth.currentUser, credential)
-              .then(onLinkSuccess)
-              .catch(onLinkError);
-            return;
-          }
-
-          const providerInstance = providerInitialisers[provider]();
-
-          if (isMobileUserAgent()) {
-            linkWithRedirect(auth.currentUser, providerInstance)
-              .then(onLinkSuccess)
-              .catch(onLinkError);
-          } else {
-            linkWithPopup(auth.currentUser, providerInstance)
-              .then(onLinkSuccess)
-              .catch(onLinkError);
-          }
-        },
-        signIn(provider: Provider | { email: string; password: string }) {
-          setState({
-            isPending: true,
-            error: null,
-            user: null,
-          });
-
-          const onSignInSuccess = (userCredential: UserCredential) => {
-            if (!isMountedRef.current) {
-              return;
-            }
-
-            setState({
-              isPending: false,
-              error: null,
-              user: setUser(userCredential.user),
-            });
-          };
-
-          const onSignInError = (error: Error) => {
-            if (!isMountedRef.current) {
-              return;
-            }
-
-            setState({
-              isPending: false,
-              error,
-              user: null,
-            });
-          };
-
-          if (typeof provider !== "string") {
-            signInWithEmailAndPassword(auth, provider.email, provider.password)
-              .then(onSignInSuccess)
-              .catch(onSignInError);
-            return;
-          }
-
-          const providerInstance = providerInitialisers[provider]();
-
-          if (isMobileUserAgent()) {
-            signInWithRedirect(auth, providerInstance)
-              .then(onSignInSuccess)
-              .catch(onSignInError);
-          } else {
-            signInWithPopup(auth, providerInstance)
-              .then(onSignInSuccess)
-              .catch(onSignInError);
-          }
-        },
-      };
-    },
-    // @ts-ignore
-    useUser() {
       const [state, setState] = useState(
         userPromise.status === "pending"
           ? {
-              isFetching: true,
+              isPending: true,
               error: null,
-              data: null,
+              user: null,
+              didSignUp: false,
             }
           : userPromise.status === "fulfilled"
           ? {
-              isFetching: false,
+              isPending: false,
               error: null,
-              data: userPromise.value,
+              user: userPromise.value,
+              didSignUp: false,
             }
           : {
-              isFetching: false,
+              isPending: false,
               error: userPromise.reason,
-              data: null,
+              user: null,
+              didSignUp: false,
             }
       );
 
       useEffect(
         () =>
           onAuthStateChanged(auth, async (user) => {
-            setState({
-              isFetching: false,
-              error: null,
-              data: setUser(user),
+            if (!isMountedRef.current) {
+              return;
+            }
+
+            redirectResult.then((redirectUserCredentials) => {
+              setState((current) => {
+                // Can happen on sign in as we set the user when signing in
+                if (current.user && current.user.uid === user?.uid) {
+                  return current;
+                }
+
+                return {
+                  isPending: false,
+                  error: null,
+                  user: setUser(user),
+                  didSignUp: didUserSignUp(user),
+                };
+              });
             });
           }),
         []
@@ -350,6 +290,85 @@ export function createAuth<T extends AuthOptions>(
           }
 
           throw new Error("Unexpected user promise state");
+        },
+        link(provider: OAuthProvider) {
+          if (!auth.currentUser) {
+            throw new Error("No user to link to");
+          }
+
+          setState({
+            isPending: true,
+            error: null,
+            user: null,
+            didSignUp: false,
+          });
+
+          const onLinkSuccess = (userCredential: UserCredential) => {
+            if (!isMountedRef.current) {
+              return;
+            }
+
+            setState({
+              isPending: false,
+              error: null,
+              user: setUser(userCredential.user),
+              didSignUp: true,
+            });
+          };
+
+          const onLinkError = (error: Error) => {
+            if (!isMountedRef.current) {
+              return;
+            }
+
+            setState({
+              isPending: false,
+              error,
+              user: null,
+              didSignUp: false,
+            });
+          };
+
+          const providerInstance = providerInitialisers[provider]();
+
+          if (isMobileUserAgent()) {
+            linkWithRedirect(auth.currentUser, providerInstance)
+              .then(onLinkSuccess)
+              .catch(onLinkError);
+          } else {
+            linkWithPopup(auth.currentUser, providerInstance)
+              .then(onLinkSuccess)
+              .catch(onLinkError);
+          }
+        },
+        signIn(provider: OAuthProvider) {
+          setState({
+            isPending: true,
+            error: null,
+            user: null,
+            didSignUp: false,
+          });
+
+          const onSignInError = (error: Error) => {
+            if (!isMountedRef.current) {
+              return;
+            }
+
+            setState({
+              isPending: false,
+              error,
+              user: null,
+              didSignUp: false,
+            });
+          };
+
+          const providerInstance = providerInitialisers[provider]();
+
+          if (isMobileUserAgent()) {
+            signInWithRedirect(auth, providerInstance).catch(onSignInError);
+          } else {
+            signInWithPopup(auth, providerInstance).catch(onSignInError);
+          }
         },
       };
     },
