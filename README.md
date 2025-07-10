@@ -1,6 +1,6 @@
-# firebaseit
+# 🔥 FirebaseIt - The Ultimate React Firebase Framework
 
-A React firebase framework to build monetizable apps
+> Build monetizable apps with ease using Firebase and React
 
 ## Prerequesites
 
