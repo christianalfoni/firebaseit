@@ -1,6 +1,7 @@
-# firebaseit
+# 🔥 FirebaseIt
+## *The React Firebase Framework That Turns Ideas Into Revenue*
 
-A React firebase framework to build monetizable apps
+🚀 Build monetizable apps with Firebase + Stripe integration out of the box
 
 ## Prerequesites
 
