@@ -1,6 +1,7 @@
-# firebaseit
+# 🔥 FirebaseIt
+### The Ultimate React Firebase Framework for Monetizable Apps
 
-A React firebase framework to build monetizable apps
+Build powerful, production-ready applications with Firebase, Stripe, and React - all with type-safe schemas and zero boilerplate.
 
 ## Prerequesites
 
