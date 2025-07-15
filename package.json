@@ -37,7 +37,6 @@
     "vitest": "^3.0.5"
   },
   "dependencies": {
-    "@invertase/firestore-stripe-payments": "^0.0.8",
     "firebase": "^11.9.1",
     "lodash.isequal": "^4.5.0",
     "react": "^19.0.0"

@@ -91,30 +91,22 @@ export function createRetrieverCache(): RetrieverCache {
 
           (updatedSnapshot as QuerySnapshot).docChanges().forEach((change) => {
             hasChanged = true;
+            const data = {
+              ...change.doc.data(),
+              id: change.doc.id,
+            };
 
             if (change.type === "added") {
-              const data = {
-                ...change.doc.data(),
-                id: change.doc.id,
-              };
-              docs.push(data);
+              docs.splice(change.newIndex, 0, data); // Insert at new index
               dataCache[data.id] = data;
             } else if (change.type === "modified") {
-              const data = {
-                ...change.doc.data(),
-                id: change.doc.id,
-              };
-              docs.splice(
-                docs.findIndex((doc) => doc.id === change.doc.id),
-                1,
-                data
-              );
+              // Remove from old index
+              docs.splice(change.oldIndex, 1);
+              // Insert at new index
+              docs.splice(change.newIndex, 0, data);
               dataCache[data.id] = data;
             } else if (change.type === "removed") {
-              docs.splice(
-                docs.findIndex((doc) => doc.id === change.doc.id),
-                1
-              );
+              docs.splice(change.oldIndex, 1); // Use oldIndex to remove
               delete dataCache[change.doc.id];
             }
           });
@@ -122,6 +114,7 @@ export function createRetrieverCache(): RetrieverCache {
           return hasChanged ? docs.slice() : docs;
         }
 
+        // Handle single document
         return {
           ...(updatedSnapshot as DocumentSnapshot).data(),
           id: (updatedSnapshot as DocumentSnapshot).id,

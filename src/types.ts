@@ -1,7 +1,6 @@
 import { AuthCredential, OAuthCredential } from "firebase/auth";
 import type { Auth } from "./auth";
 import type { Collection } from "./collection";
-import type { createPayment } from "./payment";
 import type {
   CollectionSchema,
   FunctionSchema,
@@ -24,7 +23,6 @@ export type FirebaseStore<
     useTransaction(): UseTransaction<S>;
   };
   auth: Auth<A>;
-  payment: ReturnType<typeof createPayment>;
   functions: {
     [K in keyof F]: F[K]["request"] extends VoidSchema
       ? () => Promise<ReturnType<F[K]["fromServer"]>>

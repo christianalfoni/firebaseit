@@ -345,6 +345,14 @@ export const s = {
   date: (): DateSchema => ({
     type: "date",
     fromServer: (val) => {
+      if (
+        val &&
+        typeof val === "object" &&
+        "_seconds" in val &&
+        "_nanoseconds" in val
+      ) {
+        val = new Timestamp(val._seconds as number, val._nanoseconds as number);
+      }
       if (!(val instanceof Timestamp)) {
         throw new Error("Value is not a timestamp");
       }

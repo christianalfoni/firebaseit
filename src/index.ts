@@ -18,7 +18,6 @@ import type {
 } from "./types";
 import { createUseTransaction } from "./useTransaction";
 import { createAuth } from "./auth";
-import { createPayment } from "./payment";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { createFiles } from "./files";
 import { FunctionSchema } from "./schema";
@@ -85,7 +84,6 @@ export function createFirebase<
     files,
     useTransaction: createUseTransaction(firestore, schema),
     auth: storeAuth,
-    payment: createPayment(firestore, firebaseFunctions, storeAuth),
     functions: evaluatedFunctions,
   } as any;
 }

@@ -4,17 +4,17 @@ import {
   GoogleAuthProvider,
   onAuthStateChanged,
   signInAnonymously,
-  signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
   GithubAuthProvider,
   type UserCredential,
   type User as FirebaseUser,
-  linkWithCredential,
-  EmailAuthProvider,
   linkWithRedirect,
   linkWithPopup,
   getRedirectResult,
+  getAdditionalUserInfo,
+  AdditionalUserInfo,
+  OAuthCredential,
 } from "firebase/auth";
 import type { AuthOptions, OAuthProvider } from "./types";
 import { useEffect, useRef, useState } from "react";
@@ -49,46 +49,42 @@ export type AnonymousUser = {
 
 export type User = AuthenticatedUser | AnonymousUser;
 
+export type AuthState<T extends AuthOptions> = {
+  signUp: {
+    info: AdditionalUserInfo;
+    credential: OAuthCredential;
+  } | null;
+} & (
+  | {
+      isPending: false;
+      error: null;
+      user: null;
+    }
+  | {
+      isPending: true;
+      error: null;
+      user: null;
+    }
+  | {
+      isPending: false;
+      error: Error;
+      user: null;
+    }
+  | {
+      isPending: false;
+      error: null;
+      user: T["allowAnonymous"] extends true
+        ? User | AuthenticatedUser
+        : AuthenticatedUser | null;
+    }
+);
+
 export type Auth<T extends AuthOptions> = {
-  useAuth(): (
-    | {
-        didSignUp: false;
-        isPending: false;
-        error: null;
-        user: null;
-      }
-    | {
-        didSignUp: false;
-        isPending: true;
-        error: null;
-        user: null;
-      }
-    | {
-        didSignUp: false;
-        isPending: false;
-        error: Error;
-        user: null;
-      }
-    | {
-        didSignUp: false;
-        isPending: false;
-        error: null;
-        user: T["allowAnonymous"] extends true
-          ? User | AuthenticatedUser
-          : AuthenticatedUser | null;
-      }
-    | {
-        didSignUp: true;
-        isPending: false;
-        error: null;
-        user: T["allowAnonymous"] extends true
-          ? User | AuthenticatedUser
-          : AuthenticatedUser | null;
-      }
-  ) & {
+  useAuth(): AuthState<T> & {
     suspend(): T["allowAnonymous"] extends true ? User : AuthenticatedUser;
     signIn(provider: OAuthProvider): void;
     signOut(): void;
+    signedUp(): void;
     link(provider: OAuthProvider): void;
   };
 };
@@ -169,18 +165,25 @@ export function createAuth<T extends AuthOptions>(
     return user;
   }
 
-  function didUserSignUp(firebaseUser: FirebaseUser | null): boolean {
-    if (!firebaseUser) {
-      return false;
+  function getSignUp(userCredentials: UserCredential) {
+    if (!userCredentials.providerId) {
+      throw new Error("No providerId in user credentials");
+    }
+    const credential = userCredentials.providerId.includes("github")
+      ? GithubAuthProvider.credentialFromResult(userCredentials)
+      : GoogleAuthProvider.credentialFromResult(userCredentials);
+    const info = getAdditionalUserInfo(userCredentials);
+
+    if (!credential || !info) {
+      throw new Error(
+        "No credential or additional user info found in user credentials"
+      );
     }
 
-    const metadata = firebaseUser.metadata;
-
-    if (!metadata || !metadata.creationTime || !metadata.lastSignInTime) {
-      return false;
-    }
-
-    return metadata.creationTime === metadata.lastSignInTime;
+    return {
+      info,
+      credential,
+    };
   }
 
   const cachedUser = localStorage.getItem(LOCAL_STORAGE_KEY)
@@ -211,71 +214,74 @@ export function createAuth<T extends AuthOptions>(
         )
   ) as SuspensePromise<User | null>;
 
+  let isSigningIn = false;
+  const authStateChangeSubscriptions = new Set<(state: AuthState<T>) => void>();
+
+  function notifyAuthStateSubscribers(state: AuthState<T>) {
+    authStateChangeSubscriptions.forEach((callback) => {
+      callback(state);
+    });
+  }
+
+  onAuthStateChanged(auth, async (user) => {
+    redirectResult.then((redirectUserCredentials) => {
+      if (isSigningIn) {
+        return;
+      }
+
+      notifyAuthStateSubscribers({
+        isPending: false,
+        error: null,
+        user: setUser(user) as any,
+        signUp: redirectUserCredentials
+          ? getSignUp(redirectUserCredentials)
+          : null,
+      });
+    });
+  });
+
   return {
     // @ts-ignore
     useAuth() {
-      const isMountedRef = useRef(false);
-
-      useEffect(() => {
-        isMountedRef.current = true;
-
-        return () => {
-          isMountedRef.current = false;
-        };
-      }, []);
-
-      const [state, setState] = useState(
+      const [state, setState] = useState<AuthState<T>>(
         userPromise.status === "pending"
           ? {
               isPending: true,
               error: null,
               user: null,
-              didSignUp: false,
+              signUp: null,
             }
           : userPromise.status === "fulfilled"
           ? {
               isPending: false,
               error: null,
-              user: userPromise.value,
-              didSignUp: false,
+              user: userPromise.value as any,
+              signUp: null,
             }
           : {
               isPending: false,
               error: userPromise.reason,
               user: null,
-              didSignUp: false,
+              signUp: null,
             }
       );
 
-      useEffect(
-        () =>
-          onAuthStateChanged(auth, async (user) => {
-            if (!isMountedRef.current) {
-              return;
-            }
-
-            redirectResult.then((redirectUserCredentials) => {
-              setState((current) => {
-                // Can happen on sign in as we set the user when signing in
-                if (current.user && current.user.uid === user?.uid) {
-                  return current;
-                }
-
-                return {
-                  isPending: false,
-                  error: null,
-                  user: setUser(user),
-                  didSignUp: didUserSignUp(user),
-                };
-              });
-            });
-          }),
-        []
-      );
+      useEffect(() => {
+        authStateChangeSubscriptions.add(setState);
+        return () => {
+          authStateChangeSubscriptions.delete(setState);
+        };
+      }, [setState]);
 
       // @ts-ignore
       return {
         ...state,
+        signedUp() {
+          setState((prev) => ({
+            ...prev,
+            signUp: null,
+          }));
+        },
         suspend() {
           if (userPromise.status === "pending") {
             throw userPromise;
@@ -296,36 +302,28 @@ export function createAuth<T extends AuthOptions>(
             throw new Error("No user to link to");
           }
 
-          setState({
+          notifyAuthStateSubscribers({
             isPending: true,
             error: null,
             user: null,
-            didSignUp: false,
+            signUp: null,
           });
 
           const onLinkSuccess = (userCredential: UserCredential) => {
-            if (!isMountedRef.current) {
-              return;
-            }
-
-            setState({
+            notifyAuthStateSubscribers({
               isPending: false,
               error: null,
-              user: setUser(userCredential.user),
-              didSignUp: true,
+              user: setUser(userCredential.user) as any,
+              signUp: userCredential ? getSignUp(userCredential) : null,
             });
           };
 
           const onLinkError = (error: Error) => {
-            if (!isMountedRef.current) {
-              return;
-            }
-
-            setState({
+            notifyAuthStateSubscribers({
               isPending: false,
               error,
               user: null,
-              didSignUp: false,
+              signUp: null,
             });
           };
 
@@ -342,23 +340,32 @@ export function createAuth<T extends AuthOptions>(
           }
         },
         signIn(provider: OAuthProvider) {
-          setState({
+          notifyAuthStateSubscribers({
             isPending: true,
             error: null,
             user: null,
-            didSignUp: false,
+            signUp: null,
           });
 
-          const onSignInError = (error: Error) => {
-            if (!isMountedRef.current) {
-              return;
-            }
+          isSigningIn = true;
 
-            setState({
+          const onSignInSuccess = (userCredential: UserCredential) => {
+            notifyAuthStateSubscribers({
+              isPending: false,
+              error: null,
+              user: setUser(userCredential.user) as any,
+              signUp: userCredential ? getSignUp(userCredential) : null,
+            });
+
+            isSigningIn = false;
+          };
+
+          const onSignInError = (error: Error) => {
+            notifyAuthStateSubscribers({
               isPending: false,
               error,
               user: null,
-              didSignUp: false,
+              signUp: null,
             });
           };
 
@@ -367,7 +374,9 @@ export function createAuth<T extends AuthOptions>(
           if (isMobileUserAgent()) {
             signInWithRedirect(auth, providerInstance).catch(onSignInError);
           } else {
-            signInWithPopup(auth, providerInstance).catch(onSignInError);
+            signInWithPopup(auth, providerInstance)
+              .then(onSignInSuccess)
+              .catch(onSignInError);
           }
         },
       };
