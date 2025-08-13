@@ -5,6 +5,11 @@ type OptionalKeys<T extends Record<string, any>> = {
   [K in keyof T]: T[K] extends OptionalSchema<any> ? K : never;
 }[keyof T];
 
+// 1b) pick out exactly the keys that are Nullables
+type NullableKeys<T extends Record<string, any>> = {
+  [K in keyof T]: T[K] extends NullableSchema<any> ? K : never;
+}[keyof T];
+
 // 2) pick out the rest (the required ones)
 type RequiredKeys<T extends Record<string, any>> = Exclude<
   keyof T,
@@ -16,14 +21,14 @@ export type fromServerObject<T extends ObjectSchemaProperties> =
   // all the required schema-keys stay required
   {
     [K in RequiredKeys<T>]: ReturnType<T[K]["fromServer"]>;
-  } & { [K in OptionalKeys<T>]?: ReturnType<T[K]["fromServer"]> }; // all the optional schema-keys become optional (and return undefined if missing)
+  } & { [K in OptionalKeys<T>]?: ReturnType<T[K]["fromServer"]> };
 
 // 4) build the final mapped output type
 export type toServerObject<T extends ObjectSchemaProperties> =
   // all the required schema-keys stay required
   {
     [K in RequiredKeys<T>]: ReturnType<T[K]["toServer"]>;
-  } & { [K in OptionalKeys<T>]?: ReturnType<T[K]["toServer"]> }; // all the optional schema-keys become optional (and return undefined if missing)
+  } & { [K in OptionalKeys<T>]?: ReturnType<T[K]["toServer"]> };
 
 export type Id = string;
 
@@ -43,6 +48,13 @@ export type OptionalSchema<S> = {
   schema: S;
   fromServer: (val: unknown) => SchemaType<S> | undefined;
   toServer: (val: SchemaType<S> | undefined) => unknown;
+};
+
+export type NullableSchema<S> = {
+  type: "nullable";
+  schema: S;
+  fromServer: (val: unknown) => SchemaType<S> | null;
+  toServer: (val: SchemaType<S> | null) => unknown;
 };
 
 export type EnumSchema<S extends ArraySchemaValues[]> = {
@@ -126,6 +138,7 @@ export type ObjectSchemaValues =
   | DateSchema
   | UidSchema
   | OptionalSchema<any>
+  | NullableSchema<any>
   | EnumSchema<any>
   | ConstantSchema<any>
   | UnknownSchema;
@@ -160,6 +173,8 @@ type SchemaType<S> = S extends DateSchema
   ? ReturnType<S["fromServer"]>
   : S extends OptionalSchema<infer U>
   ? SchemaType<U> | undefined
+  : S extends NullableSchema<infer U>
+  ? SchemaType<U> | null
   : S extends EnumSchema<infer U>
   ? SchemaType<U[number]>
   : S extends ConstantSchema<infer U>
@@ -312,6 +327,33 @@ export const s = {
       if (val === undefined) {
         // Firestore will simply omit fields set to undefined
         return undefined;
+      }
+      return inner.toServer(val as any);
+    },
+  }),
+  nullable: <
+    S extends
+      | ArraySchemaValues
+      | ObjectSchema<any>
+      | StringSchema
+      | NumberSchema
+      | BooleanSchema
+      | DateSchema
+      | UidSchema
+  >(
+    inner: S
+  ): NullableSchema<S> => ({
+    type: "nullable",
+    schema: inner,
+    fromServer: (val: unknown) => {
+      if (val === undefined || val === null) {
+        return null;
+      }
+      return inner.fromServer(val) as SchemaType<S>;
+    },
+    toServer: (val: SchemaType<S> | null) => {
+      if (val === null) {
+        return null;
       }
       return inner.toServer(val as any);
     },
