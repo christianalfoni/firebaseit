@@ -1,4 +1,4 @@
-# firebaseit
+# firebaseit - An awsome Firebase library!
 
 A React Firebase framework with type-safe schema definitions, real-time data synchronization, and comprehensive state management.
 
